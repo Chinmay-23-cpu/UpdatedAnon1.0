@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Success - TrendWave</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="shortcut icon" href="https://i.postimg.cc/R07Wy2gJ/favicon.png" type="image/x-icon">
+    <style>
+        .success-container {
+            max-width: 600px;
+            margin: 80px auto;
+            text-align: center;
+            padding: 40px 20px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.05);
+        }
+
+        .success-icon {
+            font-size: 80px;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+
+        .success-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #111;
+            margin-bottom: 15px;
+        }
+
+        .success-message {
+            font-size: 16px;
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+
+        .order-id-box {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 30px;
+            border: 1px dashed #ccc;
+        }
+
+        .continue-btn {
+            display: inline-block;
+            background: #000;
+            color: #fff;
+            padding: 15px 30px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .continue-btn:hover {
+            background: #222;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="header-main" style="border-bottom: 1px solid #eee;">
+            <div class="container" style="text-align: center; padding: 15px 0;">
+                <a href="index.html" class="header-logo"><img src="https://i.postimg.cc/XYYNC3X8/logo.png" alt="logo" width="120" height="36"></a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="success-container">
+            <div class="success-icon">
+                <ion-icon name="checkmark-circle"></ion-icon>
+            </div>
+            <h1 class="success-title">Order Placed!</h1>
+            <p class="success-message">
+                Success! Your order is placed. We’re doing a little dance of joy and getting your items ready for their new home!
+            </p>
+            <div class="order-id-box">
+                <span style="color: #666; font-size: 14px;">Order ID: </span>
+                <strong id="display-order-id">Loading...</strong>
+            </div>
+            <br>
+            <a href="index.html" class="continue-btn">Continue Shopping</a>
+        </div>
+    </main>
+
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const params = new URLSearchParams(window.location.search);
+            const orderId = params.get('order_id');
+            if (orderId) {
+                document.getElementById('display-order-id').innerText = orderId;
+            } else {
+                document.getElementById('display-order-id').innerText = "Unknown";
+            }
+        });
+    </script>
+</body>
+
+</html>
