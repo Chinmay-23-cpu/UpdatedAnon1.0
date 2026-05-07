@@ -26,6 +26,36 @@ async function initCheckout() {
 
     await loadCheckoutCart(user.id);
 
+    // Add input formatting for card number
+    const cardInput = document.getElementById('card');
+    if (cardInput) {
+        cardInput.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\s/g, '');
+            let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+            e.target.value = formattedValue;
+        });
+    }
+
+    // Add input formatting for expiry date
+    const expInput = document.getElementById('exp');
+    if (expInput) {
+        expInput.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length >= 2) {
+                value = value.slice(0, 2) + '/' + value.slice(2, 4);
+            }
+            e.target.value = value;
+        });
+    }
+
+    // Add input formatting for CVC
+    const cvcInput = document.getElementById('cvc');
+    if (cvcInput) {
+        cvcInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+        });
+    }
+
     const form = document.getElementById('checkout-form');
     if (form) {
         form.addEventListener('submit', async (e) => {
@@ -44,6 +74,45 @@ function formatPriceCheckout(priceUsd) {
     }
     return `$${priceUsd.toFixed(2)}`;
 }
+
+// Update checkout prices when currency changes
+window.updateCheckoutPrices = function() {
+    if (cartItemsCache.length === 0) return;
+    
+    let newTotal = 0;
+    let html = '';
+    
+    cartItemsCache.forEach(item => {
+        const prod = item.products;
+        if (!prod) return;
+        
+        newTotal += (prod.price * item.quantity);
+        
+        html += `
+            <div class="order-summary-item">
+                <img src="${prod.image_url}" alt="${prod.name}" class="order-summary-img">
+                <div class="order-summary-info">
+                    <h4 class="order-summary-title">${prod.name}</h4>
+                    <p class="order-summary-price">Qty: ${item.quantity}</p>
+                </div>
+                <div class="order-summary-price" style="font-weight: 500;">
+                    ${formatPriceCheckout(prod.price * item.quantity)}
+                </div>
+            </div>
+        `;
+    });
+    
+    const container = document.getElementById('checkout-items');
+    if (container) {
+        container.innerHTML = html;
+    }
+    
+    totalAmount = newTotal;
+    const formattedTotal = formatPriceCheckout(totalAmount);
+    document.getElementById('summary-subtotal').innerText = formattedTotal;
+    document.getElementById('summary-total').innerText = formattedTotal;
+    document.getElementById('pay-btn').innerText = `PAY ${formattedTotal}`;
+};
 
 async function loadCheckoutCart(userId) {
     const container = document.getElementById('checkout-items');
@@ -134,6 +203,41 @@ async function processPayment(userId) {
         return;
     }
 
+    // Enhanced form validation
+    const form = document.getElementById('checkout-form');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    // Validate required fields
+    const requiredFields = ['fname', 'lname', 'address', 'city', 'zip', 'email', 'card', 'exp', 'cvc', 'cardname'];
+    for (const fieldId of requiredFields) {
+        const field = document.getElementById(fieldId);
+        if (!field || !field.value.trim()) {
+            alert(`Please fill in all required fields.`);
+            field?.focus();
+            return;
+        }
+    }
+
+    // Validate email format
+    const email = document.getElementById('email').value.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        alert('Please enter a valid email address.');
+        document.getElementById('email').focus();
+        return;
+    }
+
+    // Validate card format (basic validation)
+    const cardNumber = document.getElementById('card').value.replace(/\s/g, '');
+    if (cardNumber.length < 13 || cardNumber.length > 19 || !/^\d+$/.test(cardNumber)) {
+        alert('Please enter a valid card number.');
+        document.getElementById('card').focus();
+        return;
+    }
+
     const btn = document.getElementById('pay-btn');
     btn.disabled = true;
     btn.innerText = "Processing...";
@@ -141,13 +245,13 @@ async function processPayment(userId) {
     try {
         // Collect form data
         const shippingAddress = {
-            firstName: document.getElementById('fname').value,
-            lastName: document.getElementById('lname').value,
-            address: document.getElementById('address').value,
-            apartment: document.getElementById('apartment').value,
-            city: document.getElementById('city').value,
-            zip: document.getElementById('zip').value,
-            email: document.getElementById('email').value
+            firstName: document.getElementById('fname').value.trim(),
+            lastName: document.getElementById('lname').value.trim(),
+            address: document.getElementById('address').value.trim(),
+            apartment: document.getElementById('apartment').value.trim(),
+            city: document.getElementById('city').value.trim(),
+            zip: document.getElementById('zip').value.trim(),
+            email: email
         };
 
         // 1. Create order

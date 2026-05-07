@@ -15,7 +15,7 @@ async function loadProduct() {
 
   const { data: prod, error } = await window.supabaseClient
     .from('products')
-    .select('*')
+    .select('*, categories(name)')
     .eq('id', id)
     .single();
 
@@ -26,6 +26,9 @@ async function loadProduct() {
     return;
   }
 
+  // Store current product globally for currency updates
+  window.currentProduct = prod;
+
   if (typeof fetchUserWishlist === 'function') {
       await fetchUserWishlist();
   }
@@ -33,6 +36,18 @@ async function loadProduct() {
   const container = document.getElementById("product-detail");
 
   if (!container) return;
+
+  // Create breadcrumbs
+  const categoryName = prod.categories?.name || 'Uncategorized';
+  const breadcrumbsHtml = `
+    <nav style="margin-bottom: 20px; padding: 10px 0; font-size: 14px; color: #666;">
+      <a href="index.html" style="color: #007185; text-decoration: none;">Home</a>
+      <span style="margin: 0 8px;">></span>
+      <a href="index.html?category=${encodeURIComponent(categoryName)}" style="color: #007185; text-decoration: none;">${categoryName}</a>
+      <span style="margin: 0 8px;">></span>
+      <span style="color: #333;">${prod.name}</span>
+    </nav>
+  `;
 
   const qtyOptions = `
       <option value="1">Quantity: 1</option>
@@ -46,13 +61,14 @@ async function loadProduct() {
 
   // ⚠️ IMPORTANT: MATCH YOUR EXISTING UI STRUCTURE
   container.innerHTML = `
+      ${breadcrumbsHtml}
       <div style="display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; padding: 20px;">
           <div style="flex: 1; min-width: 300px; max-width: 400px; position: sticky; top: 20px;">
               <img src="${prod.image_url}" width="100%" style="border-radius: 10px; border: 1px solid #e0e0e0; cursor: zoom-in;">
           </div>
           
           <div style="flex: 2; min-width: 300px;">
-              <p style="color: #666; font-size: 14px; margin-bottom: 5px; text-transform: uppercase;">${prod.category}</p>
+              <p style="color: #666; font-size: 14px; margin-bottom: 5px; text-transform: uppercase;">${categoryName}</p>
               <h1 style="font-size: 24px; line-height: 1.3; margin-bottom: 5px;">${prod.name}</h1>
               <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 15px; color: #ff9900; font-size: 18px;">
                   <ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star-half"></ion-icon>
@@ -93,7 +109,7 @@ async function loadProduct() {
           
           <div style="flex: 1; min-width: 250px; max-width: 300px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 18px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); align-self: flex-start; background: var(--bg, #fff);" class="buy-box">
               <div style="font-size: 28px; font-weight: normal; margin-bottom: 10px; display: flex; align-items: flex-start;" class="price-big">
-                  ₹${prod.price}
+                  ${typeof formatPrice !== 'undefined' ? formatPrice(prod.price) : '$' + prod.price}
               </div>
               <p style="font-size: 14px; margin-bottom: 15px;">
                   FREE delivery <strong>${new Date(new Date().setDate(new Date().getDate() + 4)).toLocaleDateString('en-US', {weekday: 'long', month: 'long', day:'numeric'})}</strong>. <a href="#" style="color: #007185; text-decoration: none;">Details</a>

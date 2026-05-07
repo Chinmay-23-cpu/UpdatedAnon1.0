@@ -35,12 +35,35 @@ function initTheme() {
 }
 
 window.toggleTheme = function() {
-    const isDark = document.body.classList.toggle('dark-theme');
-    currentTheme = isDark ? 'dark' : 'light';
+    const body = document.body;
+    const isCyanAmber = body.classList.contains('theme-cyan-amber');
+    const isDark = body.classList.contains('dark-theme');
+    
+    if (isCyanAmber) {
+        // Switching from cyan-amber to default theme
+        body.classList.remove('theme-cyan-amber');
+        currentTheme = 'light';
+    } else if (isDark) {
+        // Switching from dark to light
+        body.classList.remove('dark-theme');
+        currentTheme = 'light';
+    } else {
+        // Switching from light to cyan-amber
+        body.classList.add('theme-cyan-amber');
+        currentTheme = 'cyan-amber';
+    }
+    
     localStorage.setItem('theme', currentTheme);
+    
     const themeBtn = document.getElementById('theme-toggle');
     if (themeBtn) {
-        themeBtn.textContent = isDark ? '☀️' : '🌙';
+        if (currentTheme === 'cyan-amber') {
+            themeBtn.textContent = '🌙'; // Switch to default
+        } else if (currentTheme === 'dark') {
+            themeBtn.textContent = '☀️'; // Switch to light
+        } else {
+            themeBtn.textContent = '🌙'; // Switch to dark
+        }
     }
 };
 
@@ -53,11 +76,42 @@ function initCurrency() {
             localStorage.setItem('currency', currentCurrency);
             // Sync all selects
             document.querySelectorAll('select[name="currency"]').forEach(s => s.value = currentCurrency);
-            // Re-render
-            setupProductRenderers();
+            // Update all prices across the site
+            updateAllPrices();
         });
     });
 }
+
+// Global function to update all prices when currency changes
+window.updateAllPrices = function() {
+    // Update product grid prices
+    if (typeof setupProductRenderers === 'function') {
+        setupProductRenderers();
+    }
+    
+    // Update static product prices on index page
+    document.querySelectorAll('.showcase .price').forEach(el => {
+        const titleEl = el.closest('.showcase')?.querySelector('.showcase-title');
+        if(titleEl) {
+            const titleText = titleEl.textContent.trim();
+            const prod = ALL_PRODUCTS.find(p => p.title === titleText);
+            if(prod) {
+                el.textContent = formatPrice(prod.price);
+            }
+        }
+    });
+    
+    // Update product detail page price
+    const priceBigEl = document.querySelector('.price-big');
+    if(priceBigEl && typeof currentProduct !== 'undefined' && currentProduct) {
+        priceBigEl.innerHTML = formatPrice(currentProduct.price);
+    }
+    
+    // Update checkout page prices
+    if (typeof updateCheckoutPrices === 'function') {
+        updateCheckoutPrices();
+    }
+};
 
 function formatPrice(priceUsd) {
     if (currentCurrency === 'inr') {
@@ -260,9 +314,16 @@ window.toggleWishlist = async function(productId, btnElement) {
     }
 };
 
+// Real-time subscription variables
+let cartSubscription = null;
+let wishlistSubscription = null;
+
 window.updateBadges = async function() {
     const actionBtns = document.querySelectorAll('.header-user-actions .action-btn .count');
     if(actionBtns.length >= 2) {
+        // Setup real-time subscriptions first
+        setupRealtimeSubscriptions();
+        
         // Fetch real wishlist count
         let wishlistCount = 0;
         let cartCount = 0;
@@ -283,6 +344,130 @@ window.updateBadges = async function() {
     }
 }
 
+// Setup real-time subscriptions for authenticated users
+function setupRealtimeSubscriptions() {
+    if (typeof window.supabaseClient === 'undefined') {
+        console.warn('Supabase client not initialized for realtime');
+        return;
+    }
+
+    const userId = localStorage.getItem('user_id');
+    if (!userId) {
+        console.log('🔔 User not authenticated, skipping realtime subscriptions');
+        return;
+    }
+
+    console.log('🔔 Setting up realtime subscriptions for user:', userId);
+
+    // Subscribe to cart_items changes
+    cartSubscription = window.supabaseClient
+        .channel('cart-changes')
+        .on('postgres_changes', 
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'cart_items',
+                filter: `user_id=eq.${userId}` 
+            },
+            (payload) => {
+                console.log('🛒 Cart change detected:', payload.event, payload.new);
+                updateCartBadge();
+            }
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Cart subscription active');
+            } else if (status === 'TIMED_OUT' || status === 'CLOSED') {
+                console.log('⚠️ Cart subscription lost, reconnecting...');
+                setupRealtimeSubscriptions();
+            }
+        });
+
+    // Subscribe to wishlist changes
+    wishlistSubscription = window.supabaseClient
+        .channel('wishlist-changes')
+        .on('postgres_changes', 
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'wishlist',
+                filter: `user_id=eq.${userId}` 
+            },
+            (payload) => {
+                console.log('❤️ Wishlist change detected:', payload.event, payload.new);
+                updateWishlistBadge();
+            }
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Wishlist subscription active');
+            } else if (status === 'TIMED_OUT' || status === 'CLOSED') {
+                console.log('⚠️ Wishlist subscription lost, reconnecting...');
+                setupRealtimeSubscriptions();
+            }
+        });
+}
+
+// Update cart badge with smooth transition
+function updateCartBadge() {
+    const cartCount = document.getElementById('cart-count');
+    if (!cartCount) return;
+
+    // Fetch current cart count from database
+    const userId = localStorage.getItem('user_id');
+    if (userId) {
+        window.supabaseClient
+            .from('cart_items')
+            .select('id')
+            .eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (!error && data) {
+                    const count = data.length;
+                    cartCount.textContent = count;
+                    
+                    // Smooth transition: hide badge if count is 0
+                    if (count === 0) {
+                        cartCount.style.display = 'none';
+                    } else {
+                        cartCount.style.display = 'flex';
+                        cartCount.style.background = '#ff6b6b';
+                        cartCount.style.color = 'white';
+                    }
+                }
+            });
+    }
+}
+
+// Update wishlist badge with smooth transition
+function updateWishlistBadge() {
+    const wishlistCount = document.getElementById('wishlist-count');
+    if (!wishlistCount) return;
+
+    // Fetch current wishlist count from database
+    const userId = localStorage.getItem('user_id');
+    if (userId) {
+        window.supabaseClient
+            .from('wishlist')
+            .select('id')
+            .eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (!error && data) {
+                    const count = data.length;
+                    wishlistCount.textContent = count;
+                    
+                    // Smooth transition: hide badge if count is 0
+                    if (count === 0) {
+                        wishlistCount.style.display = 'none';
+                    } else {
+                        wishlistCount.style.display = 'flex';
+                        wishlistCount.style.background = '#ff6b6b';
+                        wishlistCount.style.color = 'white';
+                    }
+                }
+            });
+    }
+}
+
 window.filterByCategory = function(categoryName) {
     if(!window.location.pathname.includes('index.html') && window.location.pathname !== '/' && window.location.pathname !== '') {
         window.location.href = 'index.html?category=' + encodeURIComponent(categoryName);
@@ -297,6 +482,50 @@ window.filterByCategory = function(categoryName) {
     if (typeof loadProducts === 'function') {
         loadProducts(categoryName);
     }
+};
+
+// Load products from Supabase by category and/or gender
+window.loadProductsFromSupabase = async function(categoryIds = null, categoryName = null, gender = null) {
+    if (typeof window.supabaseClient === 'undefined') {
+        console.warn("Supabase client not initialized");
+        return [];
+    }
+
+    let query = window.supabaseClient.from('products').select('*');
+    
+    console.log('🔧 Building query with:', { categoryIds, categoryName, gender });
+    
+    if (categoryIds && Array.isArray(categoryIds)) {
+        // Query by multiple category IDs using .in() method
+        query = query.in('category_id', categoryIds);
+        console.log('🔧 Query built: .in("category_id", [', categoryIds.join(', '), '])');
+    } else if (categoryIds && typeof categoryIds === 'string') {
+        // Query by single category ID
+        query = query.eq('category_id', categoryIds);
+        console.log('🔧 Query built: .eq("category_id", "', categoryIds, '")');
+    } else if (categoryName) {
+        // For backward compatibility with string-based category filtering
+        query = query.eq('category', categoryName);
+        console.log('🔧 Query built: .eq("category", "', categoryName, '")');
+    }
+    
+    // Add gender filter if specified
+    if (gender) {
+        query = query.eq('gender', gender);
+        console.log('🔧 Added gender filter: .eq("gender", "', gender, '")');
+    }
+    
+    console.log('🔧 Final query string:', query);
+    
+    const { data: products, error } = await query;
+    
+    if (error) {
+        console.error("❌ Supabase error:", error);
+        return [];
+    }
+    
+    console.log('✅ Supabase success, products count:', products?.length || 0);
+    return products || [];
 };
 
 function fixNavigationLinks() {
@@ -430,6 +659,12 @@ function renderProductGrid(containerId, productsToRender) {
     const container = document.getElementById(containerId);
     if(!container) return;
     
+    // Show skeleton loaders initially
+    if(productsToRender === 'loading') {
+        showSkeletonLoaders(container);
+        return;
+    }
+    
     container.innerHTML = '';
     if(productsToRender.length === 0) {
         container.innerHTML = '<p>No products found.</p>';
@@ -468,6 +703,23 @@ function renderProductGrid(containerId, productsToRender) {
     });
 }
 
+function showSkeletonLoaders(container) {
+    container.innerHTML = '';
+    for(let i = 0; i < 6; i++) {
+        const skeleton = document.createElement('div');
+        skeleton.className = 'showcase skeleton-showcase';
+        skeleton.innerHTML = `
+            <div class="skeleton-image"></div>
+            <div class="showcase-content">
+                <div class="skeleton-category"></div>
+                <div class="skeleton-title"></div>
+                <div class="skeleton-price"></div>
+            </div>
+        `;
+        container.appendChild(skeleton);
+    }
+}
+
 function setupProductRenderers() {
     const isMensPage = window.location.pathname.includes('mens.html');
     const isWomensPage = window.location.pathname.includes('womens.html');
@@ -480,11 +732,49 @@ function setupProductRenderers() {
     const isIndexPage = window.location.pathname.includes('index.html') || window.location.pathname.endsWith('/');
 
     if(isMensPage) {
-        renderProductGrid('category-grid', ALL_PRODUCTS.filter(p => ['mens', 'mens fashion', 'shirt', 'shorts', 'casual', 'formal'].includes(p.category.toLowerCase()) || p.category.includes("men")));
+        // Men's Page: Strict gender filter (men or unisex only)
+        console.log('👔 Loading mens page - gender=men filter');
+        loadCategoryProducts(null, null, 'men').then(products => {
+            // Additional filter to exclude women's products
+            const filteredProducts = products.filter(prod => 
+                !prod.name.toLowerCase().includes('women') && 
+                !prod.name.toLowerCase().includes('girl') &&
+                !prod.name.toLowerCase().includes('lady')
+            );
+            renderProductGrid('category-grid', filteredProducts);
+        });
     } else if(isWomensPage) {
-        renderProductGrid('category-grid', ALL_PRODUCTS.filter(p => ['womens', 'skirt', 'clothes', 'dress'].includes(p.category.toLowerCase()) || p.category.includes("women") || p.title.toLowerCase().includes("girl")));
+        // Women's Page: Very specific categories with strict gender gatekeeper
+        console.log('👔 Loading womens page - targeted categories filter');
+        
+        // Target specific categories for women: clothes, shoes, unspecified (jewelry)
+        const womenCategoryIds = [
+            '54dd26ea-31cc-414d-8482-af193deb2992', // clothes
+            '8d91d4d1-afd5-486c-814b-298866d19390', // shoes
+            'd5c63774-8bcf-4cf0-9294-9f5f2775c854'  // unspecified/jewelry
+        ];
+        
+        loadCategoryProducts(womenCategoryIds, null, 'women').then(products => {
+            // Strict gender gatekeeper: ONLY show women's or unisex items
+            const filteredProducts = products.filter(prod => {
+                const isWomensOrUnisex = prod.gender === 'women' || prod.gender === 'unisex';
+                const hasMenKeywords = prod.name.toLowerCase().includes('men') || 
+                                     prod.name.toLowerCase().includes('mens') ||
+                                     prod.name.toLowerCase().includes('boy') ||
+                                     prod.name.toLowerCase().includes('male') ||
+                                     prod.name.toLowerCase().includes('gentleman');
+                
+                // Only show if it's women's/unisex AND doesn't contain men's keywords
+                return isWomensOrUnisex && !hasMenKeywords;
+            });
+            
+            console.log('🎯 Women\'s page filtered products:', filteredProducts.length);
+            renderProductGrid('category-grid', filteredProducts);
+        });
     } else if(isJewelryPage) {
-        renderProductGrid('category-grid', ALL_PRODUCTS.filter(p => p.category.toLowerCase().includes('jewel') || ['watch', 'watches'].includes(p.category.toLowerCase())));
+        // Jewelry/Unspecified Page: Only show unspecified category products
+        console.log('👔 Loading jewelry page - category=unspecified filter');
+        loadCategoryProducts(['d5c63774-8bcf-4cf0-9294-9f5f2775c854'], null, null);
     } else if(isFavouritesPage) {
         renderFavourites();
     } else if(isCartPage) {
@@ -504,6 +794,12 @@ function setupProductRenderers() {
     } else if (isProfilePage) {
         renderProfile();
     } else if (isIndexPage) {
+        // Show skeleton loaders initially
+        const productContainer = document.getElementById('product-container');
+        if(productContainer && productContainer.children.length === 0) {
+            showSkeletonLoaders(productContainer);
+        }
+        
         // Rebind static products so prices are updated if currency changes
         document.querySelectorAll('.showcase .price').forEach(el => {
             const titleEl = el.closest('.showcase').querySelector('.showcase-title');
@@ -515,6 +811,88 @@ function setupProductRenderers() {
                 }
             }
         });
+    }
+}
+
+// Category ID to name mapping
+const CATEGORY_MAP = {
+    '8d91d4d1-afd5-486c-814b-298866d19390': 'shoes',
+    'd5c63774-8bcf-4cf0-9294-9f5f2775c854': 'unspecified',
+    '10351ea8-2815-4a93-8eb4-48a9ecd016a0': 'mens fashion',
+    '98bf7a6a-1bdf-4c7e-8dfd-489b0ebbb969': 'winter wear',
+    '54dd26ea-31cc-414d-8482-af193deb2992': 'clothes',
+    'a16b832b-370b-43b3-9c5c-2084252631ec': 'shorts',
+    'a903aa5e-ad07-4a0e-8c63-44223f1103ac': 'jackets'
+};
+
+// Load products for category pages from Supabase
+async function loadCategoryProducts(categoryIds = null, categoryName = null, gender = null) {
+    console.log('🔍 loadCategoryProducts called with:', { categoryIds, categoryName, gender });
+    renderProductGrid('category-grid', 'loading');
+    
+    try {
+        let products = [];
+        
+        if (gender) {
+            // Hardcode test query first to debug
+            console.log('🧪 Testing hardcoded gender query for:', gender);
+            const testQuery = window.supabaseClient
+                .from('products')
+                .select('*')
+                .eq('gender', gender);
+            
+            const { data: testProducts, error: testError } = await testQuery;
+            console.log('🧪 Test query result:', { count: testProducts?.length || 0, error: testError });
+            
+            if (testError) {
+                console.error('❌ Test query failed:', testError);
+                renderProductGrid('category-grid', []);
+                return;
+            }
+            
+            products = testProducts || [];
+        } else if (categoryIds && Array.isArray(categoryIds)) {
+            // Query by multiple category IDs using .in() method
+            console.log('📦 Querying by category IDs:', categoryIds);
+            products = await loadProductsFromSupabase(categoryIds, null, gender);
+        } else if (categoryIds && typeof categoryIds === 'string') {
+            // Query by single category ID
+            console.log('📦 Querying by category ID:', categoryIds);
+            products = await loadProductsFromSupabase([categoryIds], null, gender);
+        } else if (categoryName) {
+            // Fallback to category name for backward compatibility
+            console.log('📦 Querying by category name:', categoryName);
+            products = await loadProductsFromSupabase(null, categoryName, gender);
+        }
+        
+        console.log('📊 Final products count:', products.length);
+        if (products.length > 0) {
+            console.log('📊 Sample product:', products[0]);
+        }
+        
+        // Transform Supabase products to match expected format
+        const transformedProducts = products.map(prod => {
+            let resolvedCategoryName = 'Uncategorized';
+            
+            // Try to resolve category name from ID
+            if (prod.category_id && CATEGORY_MAP[prod.category_id]) {
+                resolvedCategoryName = CATEGORY_MAP[prod.category_id];
+            }
+            
+            return {
+                id: prod.id,
+                title: prod.name,
+                price: prod.price,
+                image: prod.image_url,
+                category: resolvedCategoryName
+            };
+        });
+        
+        console.log('🎯 Calling renderProductGrid with', transformedProducts.length, 'products');
+        renderProductGrid('category-grid', transformedProducts);
+    } catch (error) {
+        console.error("❌ Failed to load category products:", error);
+        renderProductGrid('category-grid', []);
     }
 }
 
