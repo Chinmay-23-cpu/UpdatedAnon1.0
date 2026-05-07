@@ -304,9 +304,11 @@ function fixNavigationLinks() {
     links.forEach(link => {
         const text = link.textContent.trim().toLowerCase();
         if(text === "home") link.href = "index.html";
-        else if(text === "men's") { link.href = "#"; link.onclick = (e) => { e.preventDefault(); filterByCategory('Men'); } }
-        else if(text === "women's") { link.href = "#"; link.onclick = (e) => { e.preventDefault(); filterByCategory('Women'); } }
-        else if(text === "jewelyr" || text === "jewelry") { link.href = "#"; link.onclick = (e) => { e.preventDefault(); filterByCategory('Jewelry'); } }
+        // Dedicated category pages
+        else if(text === "men's") { link.href = "mens.html"; link.onclick = null; }
+        else if(text === "women's") { link.href = "womens.html"; link.onclick = null; }
+        else if(text === "jewelyr" || text === "jewelry") { link.href = "jewelry.html"; link.onclick = null; }
+        // Keep perfume as a filter (no dedicated page present)
         else if(text === "perfume") { link.href = "#"; link.onclick = (e) => { e.preventDefault(); filterByCategory('Perfume'); } }
         else if(text === "blog") link.href = "blog.html";
         else if(text === "hot offers") link.href = "offers.html";
@@ -333,6 +335,45 @@ function fixNavigationLinks() {
             cartBtn.closest('button').onclick = () => window.location.href = "cart.html";
         }
     }
+
+    // --- Categories click wiring (Fix broken category filtering) ---
+    // 1) Desktop dropdown-panel links
+    document.querySelectorAll('.dropdown-panel a[href="#"]').forEach(a => {
+        if(a.dataset.categoryWired === 'true') return;
+        a.dataset.categoryWired = 'true';
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const categoryName = (a.textContent || '').trim();
+            if(!categoryName) return;
+            filterByCategory(categoryName);
+        });
+    });
+
+    // 2) Category grid "Show All" links
+    document.querySelectorAll('.category-btn[href="#"]').forEach(btn => {
+        if(btn.dataset.categoryWired === 'true') return;
+        btn.dataset.categoryWired = 'true';
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const titleEl = btn.closest('.category-item')?.querySelector('.category-item-title');
+            const categoryName = (titleEl?.textContent || '').trim();
+            if(!categoryName) return;
+            filterByCategory(categoryName);
+        });
+    });
+
+    // 3) Sidebar submenu links
+    document.querySelectorAll('.sidebar-submenu-title[href="#"]').forEach(a => {
+        if(a.dataset.categoryWired === 'true') return;
+        a.dataset.categoryWired = 'true';
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const nameEl = a.querySelector('.product-name');
+            const categoryName = (nameEl?.textContent || '').trim();
+            if(!categoryName) return;
+            filterByCategory(categoryName);
+        });
+    });
 }
 
 function bindStaticProducts() {
@@ -486,7 +527,17 @@ async function renderProfile() {
         window.location.href = 'login.html';
         return;
     }
-    
+
+    const escapeHtml = (value) => {
+        return String(value ?? '').replace(/[&<>"']/g, (m) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[m]));
+    };
+
     // Fetch user session
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
@@ -500,11 +551,11 @@ async function renderProfile() {
         .select('full_name')
         .eq('id', user.id)
         .single();
-        
+
     const fullName = profile && profile.full_name ? profile.full_name : user.email;
 
     // Fetch orders
-    const { data: orders, error: ordersError } = await supabaseClient
+    const { data: orders } = await supabaseClient
         .from('orders')
         .select('*')
         .eq('user_id', user.id)
@@ -518,114 +569,212 @@ async function renderProfile() {
     // Simple hash-routing for tabs
     const hash = window.location.hash || '#dashboard';
 
-    // Renders the main content based on hash
-    let mainContent = '';
-    let dbActive = hash === '#dashboard' ? 'color: #000; font-weight: bold;' : 'color: #666;';
-    let orderActive = hash === '#orders' ? 'color: #000; font-weight: bold;' : 'color: #666;';
-    let addrActive = hash === '#addresses' ? 'color: #000; font-weight: bold;' : 'color: #666;';
-    let payActive = hash === '#payments' ? 'color: #000; font-weight: bold;' : 'color: #666;';
+    // Avatar preview (local-only; persists across tabs via sessionStorage)
+    const avatarKey = 'profileAvatarPreview';
+    const avatarPreview = sessionStorage.getItem(avatarKey) || '';
+    const initials = (fullName || '')
+        .split(' ')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(s => s.charAt(0).toUpperCase())
+        .join('') || 'U';
 
-    if (hash === '#orders') {
-        let ordersHtml = '';
-        if (userOrders.length === 0) {
-            ordersHtml = '<p style="color: #666;">You have no past orders.</p>';
-        } else {
-            userOrders.forEach(o => {
+    const isDashboard = hash === '#dashboard';
+    const isOrders = hash === '#orders';
+    const isAddresses = hash === '#addresses';
+    const isPayments = hash === '#payments';
+
+    // --- Sidebar (Flipkart-ish active link) ---
+    const dashboardLinkClass = isDashboard ? 'profile-side-link is-active' : 'profile-side-link';
+    const ordersLinkClass = isOrders ? 'profile-side-link is-active' : 'profile-side-link';
+    const addressesLinkClass = isAddresses ? 'profile-side-link is-active' : 'profile-side-link';
+    const paymentsLinkClass = isPayments ? 'profile-side-link is-active' : 'profile-side-link';
+
+    // --- Header (shows avatar + user identity) ---
+    const avatarHtml = avatarPreview
+        ? `<img id="profile-avatar-img" class="profile-avatar-img" src="${avatarPreview}" alt="Profile picture">`
+        : `<div id="profile-avatar-fallback" class="profile-avatar-fallback">${escapeHtml(initials)}</div>`;
+
+    const headerHtml = `
+        <section class="profile-page-header">
+            <div class="profile-hero">
+                <div class="profile-avatar-wrap">
+                    ${avatarHtml}
+                    <input
+                        type="file"
+                        id="avatar-upload-input"
+                        accept="image/*"
+                        style="display:none;"
+                        onchange="window.handleAvatarUpload(event)"
+                    />
+                    <button type="button" class="profile-photo-btn" onclick="document.getElementById('avatar-upload-input').click()">Change photo</button>
+                </div>
+                <div class="profile-hero-meta">
+                    <h2 class="profile-hero-title">
+                        Welcome back, <span id="display-name">${escapeHtml(fullName)}</span>!
+                    </h2>
+                    <p class="profile-hero-email">${escapeHtml(user.email)}</p>
+                    <p class="profile-hero-subtle">${totalOrders} total orders • ${pendingOrders} pending</p>
+                </div>
+            </div>
+        </section>
+    `;
+
+    // --- Tab content ---
+    let tabContentHtml = '';
+    if (isOrders) {
+        const ordersHtml = userOrders.length === 0
+            ? `<p class="profile-muted">You have no past orders.</p>`
+            : userOrders.map(o => {
                 const dateStr = new Date(o.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                const statusColor = o.status === 'delivered' ? 'green' : (o.status === 'paid' ? 'orange' : '#666');
-                ordersHtml += `
-                    <div style="border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 15px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px;">
-                            <strong>Order #${o.id.substring(0, 8).toUpperCase()}</strong>
-                            <span style="color: ${statusColor}; text-transform: capitalize;">${o.status}</span>
+                const statusClass = o.status === 'delivered' ? 'is-delivered' : (o.status === 'paid' ? 'is-paid' : 'is-processing');
+                return `
+                    <div class="profile-card profile-order-card">
+                        <div class="profile-order-top">
+                            <strong class="profile-order-id">Order #${escapeHtml(o.id?.substring(0, 8)?.toUpperCase?.() || '')}</strong>
+                            <span class="profile-status ${statusClass}">${escapeHtml(o.status)}</span>
                         </div>
-                        <p style="color: #666;">Placed on ${dateStr}</p>
-                        <div style="margin-top: 10px; font-weight: bold;">Total: ${formatPrice(o.total_amount || 0)}</div>
+                        <p class="profile-muted">Placed on ${escapeHtml(dateStr)}</p>
+                        <div class="profile-order-total">Total: ${formatPrice(o.total_amount || 0)}</div>
                     </div>
                 `;
-            });
-        }
+            }).join('');
 
-        mainContent = `
-            <h2 style="font-size: 28px; margin-bottom: 20px;">Order History</h2>
-            ${ordersHtml}
+        tabContentHtml = `
+            <section class="profile-tab">
+                <h3 class="profile-tab-title">Order History</h3>
+                ${ordersHtml}
+            </section>
         `;
-    } else if (hash === '#addresses') {
+    } else if (isAddresses) {
         let addressHtml = '';
         if (latestOrder && latestOrder.shipping_address) {
             const addr = latestOrder.shipping_address;
             addressHtml = `
-                <div style="border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 15px;">
-                    <h4 style="margin-bottom: 10px;">Latest Shipping Address <span style="font-size: 12px; background: #eee; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">Default</span></h4>
-                    <p style="color: #666; line-height: 1.5;">${addr.firstName} ${addr.lastName}<br>${addr.address}<br>${addr.apartment ? addr.apartment + '<br>' : ''}${addr.city}, ${addr.zip}</p>
-                    <button style="margin-top: 15px; color: #000; border: none; background: transparent; cursor: pointer; font-weight: bold;">Edit Address</button>
+                <div class="profile-card profile-address-card">
+                    <h4 class="profile-section-title">
+                        Latest Shipping Address
+                        <span class="profile-badge">Default</span>
+                    </h4>
+                    <p class="profile-muted profile-address-text">
+                        ${escapeHtml(addr.firstName)} ${escapeHtml(addr.lastName)}<br>
+                        ${escapeHtml(addr.address)}<br>
+                        ${addr.apartment ? `${escapeHtml(addr.apartment)}<br>` : ''}
+                        ${escapeHtml(addr.city)}, ${escapeHtml(addr.zip)}
+                    </p>
+                    <button type="button" class="profile-link-btn">Edit Address</button>
                 </div>
             `;
         } else {
-            addressHtml = '<p style="color: #666; margin-bottom: 20px;">No saved addresses found.</p>';
+            addressHtml = `<p class="profile-muted">No saved addresses found.</p>`;
         }
 
-        mainContent = `
-            <h2 style="font-size: 28px; margin-bottom: 20px;">Saved Addresses</h2>
-            ${addressHtml}
-            <button style="padding: 10px 20px; background: #000; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;">+ Add New Address</button>
+        tabContentHtml = `
+            <section class="profile-tab">
+                <h3 class="profile-tab-title">Saved Addresses</h3>
+                ${addressHtml}
+                <button type="button" class="profile-primary-outline-btn">+ Add New Address</button>
+            </section>
         `;
-    } else if (hash === '#payments') {
-        mainContent = `
-            <h2 style="font-size: 28px; margin-bottom: 20px;">Payment Methods</h2>
-            <div style="border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h4 style="margin-bottom: 5px;">Payment Method</h4>
-                    <p style="color: #666; font-size: 14px;">Payments are processed via secure checkout.</p>
+    } else if (isPayments) {
+        tabContentHtml = `
+            <section class="profile-tab">
+                <h3 class="profile-tab-title">Payment Methods</h3>
+                <div class="profile-card profile-payment-card">
+                    <h4 class="profile-section-title">Payment Method</h4>
+                    <p class="profile-muted">Payments are processed via secure checkout.</p>
                 </div>
-            </div>
+            </section>
         `;
     } else {
         // Default Dashboard
-        let recentActivityHtml = '<p style="color: #666; margin-top: 10px;">No recent activity.</p>';
-        if (latestOrder) {
-            recentActivityHtml = `<p style="color: #666; margin-top: 10px;">Your recent order #${latestOrder.id.substring(0, 8).toUpperCase()} is currently marked as ${latestOrder.status}.</p>`;
-        }
+        const recentActivityHtml = latestOrder
+            ? `<p class="profile-muted profile-recent-activity">Your recent order #${escapeHtml(latestOrder.id?.substring(0, 8)?.toUpperCase?.() || '')} is currently marked as ${escapeHtml(latestOrder.status)}.</p>`
+            : `<p class="profile-muted profile-recent-activity">No recent activity.</p>`;
 
-        mainContent = `
-            <h2 style="font-size: 28px; margin-bottom: 20px;">Welcome back, <span id="display-name">${fullName}</span>!</h2>
-            <div style="margin-bottom: 30px; display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="edit-name-input" placeholder="Update your name" style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 16px;">
-                <button onclick="updateProfileName()" style="padding: 10px 15px; background: #000; color: #fff; border: none; border-radius: 5px; cursor: pointer;">Save Name</button>
-            </div>
-            <div style="display: flex; gap: 20px; margin-bottom: 30px;">
-                <div style="background: #fdfdfd; padding: 20px; border-radius: 10px; border: 1px solid #eee; flex: 1;">
-                    <h4 style="margin-bottom: 10px; color: #666;">Total Orders</h4>
-                    <p style="font-size: 24px; font-weight: bold;">${totalOrders}</p>
+        tabContentHtml = `
+            <section class="profile-tab">
+                <div class="profile-edit-row">
+                    <input
+                        type="text"
+                        id="edit-name-input"
+                        class="profile-edit-input"
+                        placeholder="Update your name"
+                    />
+                    <button type="button" onclick="updateProfileName()" class="profile-primary-btn">Save Name</button>
                 </div>
-                <div style="background: #fdfdfd; padding: 20px; border-radius: 10px; border: 1px solid #eee; flex: 1;">
-                    <h4 style="margin-bottom: 10px; color: #666;">Pending Delivery</h4>
-                    <p style="font-size: 24px; font-weight: bold;">${pendingOrders}</p>
+
+                <div class="profile-stat-row">
+                    <div class="profile-stat-card">
+                        <h4 class="profile-stat-title">Total Orders</h4>
+                        <p class="profile-stat-value">${totalOrders}</p>
+                    </div>
+                    <div class="profile-stat-card">
+                        <h4 class="profile-stat-title">Pending Delivery</h4>
+                        <p class="profile-stat-value">${pendingOrders}</p>
+                    </div>
                 </div>
-            </div>
-            <h3>Recent Activity</h3>
-            ${recentActivityHtml}
+
+                <h3 class="profile-tab-title">Recent Activity</h3>
+                ${recentActivityHtml}
+            </section>
         `;
     }
 
     container.innerHTML = `
-        <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; padding: 40px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05);" class="dashboard-wrapper">
-            <div style="width: 250px; padding: 20px; border-radius: 10px; border: 1px solid #eee;" class="dashboard-sidebar">
-                <h3 style="margin-bottom: 20px;">My Account</h3>
-                <ul style="list-style: none; padding: 0;">
-                    <li style="margin-bottom: 15px;"><a href="#dashboard" onclick="setTimeout(renderProfile, 10)" style="${dbActive}">Dashboard</a></li>
-                    <li style="margin-bottom: 15px;"><a href="#orders" onclick="setTimeout(renderProfile, 10)" style="${orderActive}">Order History</a></li>
-                    <li style="margin-bottom: 15px;"><a href="#addresses" onclick="setTimeout(renderProfile, 10)" style="${addrActive}">Addresses</a></li>
-                    <li style="margin-bottom: 15px;"><a href="#payments" onclick="setTimeout(renderProfile, 10)" style="${payActive}">Payment Methods</a></li>
-                    <li><button onclick="handleLogout()" style="background: #eee; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; width: 100%; text-align: left; color: #333; font-weight: bold;">Logout</button></li>
-                </ul>
-            </div>
-            <div style="flex: 1; min-width: 300px;">
-                ${mainContent}
-            </div>
+        <div class="profile-shell">
+            <aside class="profile-sidebar">
+                <h3 class="profile-sidebar-title">My Account</h3>
+                <nav class="profile-sidebar-nav">
+                    <a href="#dashboard" onclick="setTimeout(renderProfile, 10)" class="${dashboardLinkClass}">Dashboard</a>
+                    <a href="#orders" onclick="setTimeout(renderProfile, 10)" class="${ordersLinkClass}">Order History</a>
+                    <a href="#addresses" onclick="setTimeout(renderProfile, 10)" class="${addressesLinkClass}">Addresses</a>
+                    <a href="#payments" onclick="setTimeout(renderProfile, 10)" class="${paymentsLinkClass}">Payment Methods</a>
+                </nav>
+                <button onclick="handleLogout()" type="button" class="profile-logout-btn">Logout</button>
+            </aside>
+            <section class="profile-main">
+                ${headerHtml}
+                ${tabContentHtml}
+            </section>
         </div>
     `;
 }
+
+// Avatar upload: local-only preview via sessionStorage
+window.handleAvatarUpload = function(event) {
+    const input = event.target;
+    const file = input && input.files && input.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        sessionStorage.setItem('profileAvatarPreview', dataUrl);
+
+        let avatarImg = document.getElementById('profile-avatar-img');
+        const avatarFallback = document.getElementById('profile-avatar-fallback');
+        if(!avatarImg) {
+            // Initial UI may render only the fallback. Create the image dynamically.
+            avatarImg = document.createElement('img');
+            avatarImg.id = 'profile-avatar-img';
+            avatarImg.className = 'profile-avatar-img';
+            avatarImg.alt = 'Profile picture';
+            avatarImg.src = dataUrl;
+
+            const wrap = document.querySelector('.profile-avatar-wrap');
+            if(wrap) {
+                wrap.insertBefore(avatarImg, wrap.firstChild);
+            }
+        } else {
+            avatarImg.src = dataUrl;
+        }
+
+        if(avatarFallback) avatarFallback.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+};
 
 async function renderFavourites() {
     const container = document.getElementById('favourites-items');
