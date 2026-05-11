@@ -39,11 +39,20 @@ async function loadProduct() {
 
   // Create breadcrumbs
   const categoryName = prod.categories?.name || 'Uncategorized';
+  const gender = prod.gender || 'unisex';
+  const genderDisplay = gender.charAt(0).toUpperCase() + gender.slice(1);
+  
+  // Create gender badge if product is unisex
+  const genderBadge = gender === 'unisex' ? 
+    `<span style="display: inline-block; background: #ff6b6b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 10px; text-transform: uppercase;">UNISEX</span>` : '';
+  
   const breadcrumbsHtml = `
     <nav style="margin-bottom: 20px; padding: 10px 0; font-size: 14px; color: #666;">
       <a href="index.html" style="color: #007185; text-decoration: none;">Home</a>
       <span style="margin: 0 8px;">></span>
       <a href="index.html?category=${encodeURIComponent(categoryName)}" style="color: #007185; text-decoration: none;">${categoryName}</a>
+      <span style="margin: 0 8px;">></span>
+      <a href="index.html?gender=${encodeURIComponent(gender)}" style="color: #007185; text-decoration: none;">${genderDisplay}</a>
       <span style="margin: 0 8px;">></span>
       <span style="color: #333;">${prod.name}</span>
     </nav>
@@ -69,7 +78,10 @@ async function loadProduct() {
           
           <div style="flex: 2; min-width: 300px;">
               <p style="color: #666; font-size: 14px; margin-bottom: 5px; text-transform: uppercase;">${categoryName}</p>
-              <h1 style="font-size: 24px; line-height: 1.3; margin-bottom: 5px;">${prod.name}</h1>
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                  <h1 style="font-size: 24px; line-height: 1.3; margin: 0;">${prod.name}</h1>
+                  ${genderBadge}
+              </div>
               <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 15px; color: #ff9900; font-size: 18px;">
                   <ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star"></ion-icon><ion-icon name="star-half"></ion-icon>
                   <span style="color: #007185; font-size: 14px; margin-left: 5px; cursor: pointer;">1,248 ratings</span>

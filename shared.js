@@ -511,8 +511,16 @@ window.loadProductsFromSupabase = async function(categoryIds = null, categoryNam
     
     // Add gender filter if specified
     if (gender) {
-        query = query.eq('gender', gender);
-        console.log('🔧 Added gender filter: .eq("gender", "', gender, '")');
+        if (gender.includes(',')) {
+            // Handle multiple gender values (e.g., 'men,unisex')
+            const genderValues = gender.split(',');
+            query = query.in('gender', genderValues);
+            console.log('🔧 Added gender filter: .in("gender", [', genderValues.join(', '), '])');
+        } else {
+            // Handle single gender value
+            query = query.eq('gender', gender);
+            console.log('🔧 Added gender filter: .eq("gender", "', gender, '")');
+        }
     }
     
     console.log('🔧 Final query string:', query);
@@ -536,7 +544,7 @@ function fixNavigationLinks() {
         // Dedicated category pages
         else if(text === "men's") { link.href = "mens.html"; link.onclick = null; }
         else if(text === "women's") { link.href = "womens.html"; link.onclick = null; }
-        else if(text === "jewelyr" || text === "jewelry") { link.href = "jewelry.html"; link.onclick = null; }
+        else if(text === "jewelry") { link.href = "jewelry.html"; link.onclick = null; }
         // Keep perfume as a filter (no dedicated page present)
         else if(text === "perfume") { link.href = "#"; link.onclick = (e) => { e.preventDefault(); filterByCategory('Perfume'); } }
         else if(text === "blog") link.href = "blog.html";
@@ -659,13 +667,18 @@ function renderProductGrid(containerId, productsToRender) {
     const container = document.getElementById(containerId);
     if(!container) return;
     
+    // Safety check: if productsToRender is undefined or null, return early
+    if (!productsToRender) return;
+    
     // Show skeleton loaders initially
     if(productsToRender === 'loading') {
         showSkeletonLoaders(container);
         return;
     }
     
+    // Clear container before rendering new products
     container.innerHTML = '';
+    
     if(productsToRender.length === 0) {
         container.innerHTML = '<p>No products found.</p>';
         return;
@@ -721,8 +734,13 @@ function showSkeletonLoaders(container) {
 }
 
 function setupProductRenderers() {
-    const isMensPage = window.location.pathname.includes('mens.html');
-    const isWomensPage = window.location.pathname.includes('womens.html');
+    console.log('🚀 setupProductRenderers called');
+    console.log('🌐 Current pathname:', window.location.pathname);
+    
+    // Exact path detection to avoid overlap
+    const isMensPage = window.location.pathname === '/mens.html' || window.location.pathname.endsWith('/mens.html');
+    const isWomensPage = window.location.pathname === '/womens.html' || window.location.pathname.endsWith('/womens.html');
+    console.log('👔 Page detection - Mens:', isMensPage, 'Womens:', isWomensPage);
     const isJewelryPage = window.location.pathname.includes('jewelry.html');
     const isFavouritesPage = window.location.pathname.includes('favourites.html');
     const isCartPage = window.location.pathname.includes('cart.html');
@@ -732,45 +750,13 @@ function setupProductRenderers() {
     const isIndexPage = window.location.pathname.includes('index.html') || window.location.pathname.endsWith('/');
 
     if(isMensPage) {
-        // Men's Page: Strict gender filter (men or unisex only)
-        console.log('👔 Loading mens page - gender=men filter');
-        loadCategoryProducts(null, null, 'men').then(products => {
-            // Additional filter to exclude women's products
-            const filteredProducts = products.filter(prod => 
-                !prod.name.toLowerCase().includes('women') && 
-                !prod.name.toLowerCase().includes('girl') &&
-                !prod.name.toLowerCase().includes('lady')
-            );
-            renderProductGrid('category-grid', filteredProducts);
-        });
+        // Men's Page: Strict men's filter - ONLY men's products
+        console.log('👔 Loading mens page - strict men filter only');
+        loadCategoryProducts(null, null, 'men');
     } else if(isWomensPage) {
-        // Women's Page: Very specific categories with strict gender gatekeeper
-        console.log('👔 Loading womens page - targeted categories filter');
-        
-        // Target specific categories for women: clothes, shoes, unspecified (jewelry)
-        const womenCategoryIds = [
-            '54dd26ea-31cc-414d-8482-af193deb2992', // clothes
-            '8d91d4d1-afd5-486c-814b-298866d19390', // shoes
-            'd5c63774-8bcf-4cf0-9294-9f5f2775c854'  // unspecified/jewelry
-        ];
-        
-        loadCategoryProducts(womenCategoryIds, null, 'women').then(products => {
-            // Strict gender gatekeeper: ONLY show women's or unisex items
-            const filteredProducts = products.filter(prod => {
-                const isWomensOrUnisex = prod.gender === 'women' || prod.gender === 'unisex';
-                const hasMenKeywords = prod.name.toLowerCase().includes('men') || 
-                                     prod.name.toLowerCase().includes('mens') ||
-                                     prod.name.toLowerCase().includes('boy') ||
-                                     prod.name.toLowerCase().includes('male') ||
-                                     prod.name.toLowerCase().includes('gentleman');
-                
-                // Only show if it's women's/unisex AND doesn't contain men's keywords
-                return isWomensOrUnisex && !hasMenKeywords;
-            });
-            
-            console.log('🎯 Women\'s page filtered products:', filteredProducts.length);
-            renderProductGrid('category-grid', filteredProducts);
-        });
+        // Women's Page: Strict women's filter - ONLY women's products
+        console.log('👗 Loading womens page - strict women filter only');
+        loadCategoryProducts(null, null, 'women');
     } else if(isJewelryPage) {
         // Jewelry/Unspecified Page: Only show unspecified category products
         console.log('👔 Loading jewelry page - category=unspecified filter');
@@ -828,41 +814,29 @@ const CATEGORY_MAP = {
 // Load products for category pages from Supabase
 async function loadCategoryProducts(categoryIds = null, categoryName = null, gender = null) {
     console.log('🔍 loadCategoryProducts called with:', { categoryIds, categoryName, gender });
+    
+    // Page detection: Force gender parameter based on current page
+    const pathname = window.location.pathname;
+    if (pathname.includes('mens.html')) {
+        gender = 'men,unisex';  // Force men + unisex for Men's page
+        console.log('👔 Detected Men\'s page, forcing gender to:', gender);
+    } else if (pathname.includes('womens.html')) {
+        gender = 'women';  // Strict women's filter - ONLY women's products
+        console.log('👗 Detected Women\'s page, forcing gender to:', gender);
+    }
+    
     renderProductGrid('category-grid', 'loading');
     
     try {
-        let products = [];
+        // Always use loadProductsFromSupabase for consistency
+        console.log('📦 Calling loadProductsFromSupabase with:', { categoryIds, categoryName, gender });
+        console.log('🔍 DEBUG: Gender parameter being passed to loadProductsFromSupabase:', gender);
+        let products = await loadProductsFromSupabase(categoryIds, categoryName, gender);
         
-        if (gender) {
-            // Hardcode test query first to debug
-            console.log('🧪 Testing hardcoded gender query for:', gender);
-            const testQuery = window.supabaseClient
-                .from('products')
-                .select('*')
-                .eq('gender', gender);
-            
-            const { data: testProducts, error: testError } = await testQuery;
-            console.log('🧪 Test query result:', { count: testProducts?.length || 0, error: testError });
-            
-            if (testError) {
-                console.error('❌ Test query failed:', testError);
-                renderProductGrid('category-grid', []);
-                return;
-            }
-            
-            products = testProducts || [];
-        } else if (categoryIds && Array.isArray(categoryIds)) {
-            // Query by multiple category IDs using .in() method
-            console.log('📦 Querying by category IDs:', categoryIds);
-            products = await loadProductsFromSupabase(categoryIds, null, gender);
-        } else if (categoryIds && typeof categoryIds === 'string') {
-            // Query by single category ID
-            console.log('📦 Querying by category ID:', categoryIds);
-            products = await loadProductsFromSupabase([categoryIds], null, gender);
-        } else if (categoryName) {
-            // Fallback to category name for backward compatibility
-            console.log('📦 Querying by category name:', categoryName);
-            products = await loadProductsFromSupabase(null, categoryName, gender);
+        // Ensure products is always an array
+        if (!products || !Array.isArray(products)) {
+            console.warn('⚠️ Products data is not an array, defaulting to empty array');
+            products = [];
         }
         
         console.log('📊 Final products count:', products.length);
