@@ -488,54 +488,98 @@ window.filterByCategory = function (categoryName) {
 };
 
 // Load products from Supabase by category and/or gender
+// window.loadProductsFromSupabase = async function (categoryIds = null, categoryName = null, gender = null) {
+//     if (typeof window.supabaseClient === 'undefined') {
+//         console.warn("Supabase client not initialized");
+//         return [];
+//     }
+
+//     let query = window.supabaseClient.from('products').select('*');
+
+//     console.log('🔧 Building query with:', { categoryIds, categoryName, gender });
+
+//     if (categoryIds && Array.isArray(categoryIds)) {
+//         // Query by multiple category IDs using .in() method
+//         query = query.in('category_id', categoryIds);
+//         console.log('🔧 Query built: .in("category_id", [', categoryIds.join(', '), '])');
+//     } else if (categoryIds && typeof categoryIds === 'string') {
+//         // Query by single category ID
+//         query = query.eq('category_id', categoryIds);
+//         console.log('🔧 Query built: .eq("category_id", "', categoryIds, '")');
+//     } else if (categoryName) {
+//         // For backward compatibility with string-based category filtering
+//         query = query.eq('category', categoryName);
+//         console.log('🔧 Query built: .eq("category", "', categoryName, '")');
+//     }
+
+//     // Add gender filter if specified
+//     if (gender) {
+//         if (gender.includes(',')) {
+//             // Handle multiple gender values (e.g., 'men,unisex')
+//             const genderValues = gender.split(',');
+//             query = query.in('gender', genderValues);
+//             console.log('🔧 Added gender filter: .in("gender", [', genderValues.join(', '), '])');
+//         } else {
+//             // Handle single gender value
+//             query = query.eq('gender', gender);
+//             console.log('🔧 Added gender filter: .eq("gender", "', gender, '")');
+//         }
+//     }
+
+//     console.log('🔧 Final query string:', query);
+
+//     const { data: products, error } = await query;
+
+//     if (error) {
+//         console.error("❌ Supabase error:", error);
+//         return [];
+//     }
+
+//     console.log('✅ Supabase success, products count:', products?.length || 0);
+//     return products || [];
+// };
+
 window.loadProductsFromSupabase = async function (categoryIds = null, categoryName = null, gender = null) {
-    if (typeof window.supabaseClient === 'undefined') {
-        console.warn("Supabase client not initialized");
-        return [];
-    }
+    if (typeof window.supabaseClient === 'undefined') return [];
+
+    const pathname = window.location.pathname;
+    const isMensPage = pathname.includes('mens.html');
+    const isWomensPage = pathname.includes('womens.html');
 
     let query = window.supabaseClient.from('products').select('*');
 
-    console.log('🔧 Building query with:', { categoryIds, categoryName, gender });
+    if (isMensPage) {
+        // Men's page: show gender=men AND gender=unisex,
+        // but EXCLUDE the 'unisex' category (d5c63...) which holds jewellery/shampoo/perfume.
+        // Those are women-tagged products that happen to share the unisex category.
+        query = query
+            .in('gender', ['men', 'unisex'])
+            .neq('category_id', 'd5c63774-8bcf-4cf0-9294-9f5f2775c854') // exclude unisex accessories category
+            .neq('gender', 'kids'); // never show kids products
+    } else if (isWomensPage) {
+        // Women's page: show gender=women AND gender=unisex.
+        // Unisex category (jewellery, perfume, accessories) ARE relevant for women.
+        query = query
+            .in('gender', ['women', 'unisex'])
+            .neq('gender', 'kids');
+    } else {
+        // Non-page-specific call (e.g. jewelry.html uses categoryIds)
+        if (categoryIds && Array.isArray(categoryIds)) {
+            query = query.in('category_id', categoryIds);
+        } else if (categoryIds && typeof categoryIds === 'string') {
+            query = query.eq('category_id', categoryIds);
+        } else if (categoryName) {
+            query = query.eq('category', categoryName);
+        }
 
-    if (categoryIds && Array.isArray(categoryIds)) {
-        // Query by multiple category IDs using .in() method
-        query = query.in('category_id', categoryIds);
-        console.log('🔧 Query built: .in("category_id", [', categoryIds.join(', '), '])');
-    } else if (categoryIds && typeof categoryIds === 'string') {
-        // Query by single category ID
-        query = query.eq('category_id', categoryIds);
-        console.log('🔧 Query built: .eq("category_id", "', categoryIds, '")');
-    } else if (categoryName) {
-        // For backward compatibility with string-based category filtering
-        query = query.eq('category', categoryName);
-        console.log('🔧 Query built: .eq("category", "', categoryName, '")');
-    }
-
-    // Add gender filter if specified
-    if (gender) {
-        if (gender.includes(',')) {
-            // Handle multiple gender values (e.g., 'men,unisex')
-            const genderValues = gender.split(',');
+        if (gender) {
+            const genderValues = gender.includes(',') ? gender.split(',') : [gender];
             query = query.in('gender', genderValues);
-            console.log('🔧 Added gender filter: .in("gender", [', genderValues.join(', '), '])');
-        } else {
-            // Handle single gender value
-            query = query.eq('gender', gender);
-            console.log('🔧 Added gender filter: .eq("gender", "', gender, '")');
         }
     }
 
-    console.log('🔧 Final query string:', query);
-
     const { data: products, error } = await query;
-
-    if (error) {
-        console.error("❌ Supabase error:", error);
-        return [];
-    }
-
-    console.log('✅ Supabase success, products count:', products?.length || 0);
+    if (error) { console.error('❌ Supabase error:', error); return []; }
     return products || [];
 };
 
@@ -753,17 +797,11 @@ function setupProductRenderers() {
     const isIndexPage = window.location.pathname.includes('index.html') || window.location.pathname.endsWith('/');
 
     if (isMensPage) {
-        // Men's Page: Strict men's filter - ONLY men's products
-        console.log('👔 Loading mens page - strict men filter only');
-        loadCategoryProducts(null, null, 'men');
+        loadCategoryProducts(); // gender logic is inside loadProductsFromSupabase now
     } else if (isWomensPage) {
-        // Women's Page: Strict women's filter - ONLY women's products
-        console.log('👗 Loading womens page - strict women filter only');
-        loadCategoryProducts(null, null, 'women');
+        loadCategoryProducts(); // same
     } else if (isJewelryPage) {
-        // Jewelry/Unspecified Page: Only show unspecified category products
-        console.log('👔 Loading jewelry page - category=unspecified filter');
-        loadCategoryProducts(['d5c63774-8bcf-4cf0-9294-9f5f2775c854'], null, null);
+        loadCategoryProducts(['d5c63774-8bcf-4cf0-9294-9f5f2775c854']);
     } else if (isFavouritesPage) {
         renderFavourites();
     } else if (isCartPage) {
@@ -818,60 +856,82 @@ const CATEGORY_MAP = {
 };
 
 // Load products for category pages from Supabase
+// async function loadCategoryProducts(categoryIds = null, categoryName = null, gender = null) {
+//     console.log('🔍 loadCategoryProducts called with:', { categoryIds, categoryName, gender });
+
+//     // Page detection: Force gender parameter based on current page
+//     const pathname = window.location.pathname;
+//     if (pathname.includes('mens.html')) {
+//         gender = 'men,unisex';  // Force men + unisex for Men's page
+//         console.log('👔 Detected Men\'s page, forcing gender to:', gender);
+//     } else if (pathname.includes('womens.html')) {
+//         gender = 'women';  // Strict women's filter - ONLY women's products
+//         console.log('👗 Detected Women\'s page, forcing gender to:', gender);
+//     }
+
+//     renderProductGrid('category-grid', 'loading');
+
+//     try {
+//         // Always use loadProductsFromSupabase for consistency
+//         console.log('📦 Calling loadProductsFromSupabase with:', { categoryIds, categoryName, gender });
+//         console.log('🔍 DEBUG: Gender parameter being passed to loadProductsFromSupabase:', gender);
+//         let products = await loadProductsFromSupabase(categoryIds, categoryName, gender);
+
+//         // Ensure products is always an array
+//         if (!products || !Array.isArray(products)) {
+//             console.warn('⚠️ Products data is not an array, defaulting to empty array');
+//             products = [];
+//         }
+
+//         console.log('📊 Final products count:', products.length);
+//         if (products.length > 0) {
+//             console.log('📊 Sample product:', products[0]);
+//         }
+
+//         // Transform Supabase products to match expected format
+//         const transformedProducts = products.map(prod => {
+//             let resolvedCategoryName = 'Uncategorized';
+
+//             // Try to resolve category name from ID
+//             if (prod.category_id && CATEGORY_MAP[prod.category_id]) {
+//                 resolvedCategoryName = CATEGORY_MAP[prod.category_id];
+//             }
+
+//             return {
+//                 id: prod.id,
+//                 title: prod.name,
+//                 price: prod.price,
+//                 image: prod.image_url,
+//                 category: resolvedCategoryName
+//             };
+//         });
+
+//         console.log('🎯 Calling renderProductGrid with', transformedProducts.length, 'products');
+//         renderProductGrid('category-grid', transformedProducts);
+//     } catch (error) {
+//         console.error("❌ Failed to load category products:", error);
+//         renderProductGrid('category-grid', []);
+//     }
+// }
+
 async function loadCategoryProducts(categoryIds = null, categoryName = null, gender = null) {
-    console.log('🔍 loadCategoryProducts called with:', { categoryIds, categoryName, gender });
-
-    // Page detection: Force gender parameter based on current page
-    const pathname = window.location.pathname;
-    if (pathname.includes('mens.html')) {
-        gender = 'men,unisex';  // Force men + unisex for Men's page
-        console.log('👔 Detected Men\'s page, forcing gender to:', gender);
-    } else if (pathname.includes('womens.html')) {
-        gender = 'women';  // Strict women's filter - ONLY women's products
-        console.log('👗 Detected Women\'s page, forcing gender to:', gender);
-    }
-
     renderProductGrid('category-grid', 'loading');
 
     try {
-        // Always use loadProductsFromSupabase for consistency
-        console.log('📦 Calling loadProductsFromSupabase with:', { categoryIds, categoryName, gender });
-        console.log('🔍 DEBUG: Gender parameter being passed to loadProductsFromSupabase:', gender);
         let products = await loadProductsFromSupabase(categoryIds, categoryName, gender);
+        if (!products || !Array.isArray(products)) products = [];
 
-        // Ensure products is always an array
-        if (!products || !Array.isArray(products)) {
-            console.warn('⚠️ Products data is not an array, defaulting to empty array');
-            products = [];
-        }
+        const transformedProducts = products.map(prod => ({
+            id: prod.id,
+            title: prod.name,
+            price: prod.price,
+            image: prod.image_url,
+            category: CATEGORY_MAP[prod.category_id] || 'Uncategorized'
+        }));
 
-        console.log('📊 Final products count:', products.length);
-        if (products.length > 0) {
-            console.log('📊 Sample product:', products[0]);
-        }
-
-        // Transform Supabase products to match expected format
-        const transformedProducts = products.map(prod => {
-            let resolvedCategoryName = 'Uncategorized';
-
-            // Try to resolve category name from ID
-            if (prod.category_id && CATEGORY_MAP[prod.category_id]) {
-                resolvedCategoryName = CATEGORY_MAP[prod.category_id];
-            }
-
-            return {
-                id: prod.id,
-                title: prod.name,
-                price: prod.price,
-                image: prod.image_url,
-                category: resolvedCategoryName
-            };
-        });
-
-        console.log('🎯 Calling renderProductGrid with', transformedProducts.length, 'products');
         renderProductGrid('category-grid', transformedProducts);
     } catch (error) {
-        console.error("❌ Failed to load category products:", error);
+        console.error('❌ Failed to load category products:', error);
         renderProductGrid('category-grid', []);
     }
 }

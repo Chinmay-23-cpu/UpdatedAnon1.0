@@ -175,6 +175,7 @@ async function loadProduct() {
   `;
 
     renderPriceChart(prod.id);
+    renderRelatedProducts(prod);
 }
 
 async function renderPriceChart(productId) {
@@ -301,6 +302,245 @@ async function renderPriceChart(productId) {
         canvas._chartInstance = chart;
     });
 }
+
+async function renderRelatedProducts(currentProduct) {
+    // --- 1. Fetch same-category products, exclude current ---
+    let { data: related, error } = await window.supabaseClient
+        .from('products')
+        .select('*, categories(name)')
+        .eq('category_id', currentProduct.category_id)
+        .neq('id', currentProduct.id)
+        .limit(8); // fetch 8, pick 4 random below
+
+    let isFallback = false;
+
+    // --- 2. Fallback: not enough in same category → fetch from other categories ---
+    if (error || !related || related.length === 0) {
+        isFallback = true;
+        const { data: trending } = await window.supabaseClient
+            .from('products')
+            .select('*, categories(name)')
+            .neq('id', currentProduct.id)
+            .neq('category_id', currentProduct.category_id)
+            .limit(8);
+        related = trending || [];
+    }
+
+    // Pick 4 at random from whatever we got
+    const shuffled = related.sort(() => Math.random() - 0.5).slice(0, 4);
+
+    if (shuffled.length === 0) return; // nothing to show at all
+
+    // --- 3. Build the section HTML ---
+    const sectionLabel = isFallback ? 'Trending products' : 'Customers also viewed';
+
+    const cardsHtml = shuffled.map(prod => {
+        const price = typeof formatPrice !== 'undefined'
+            ? formatPrice(prod.price)
+            : '$' + prod.price;
+        const categoryName = prod.categories?.name || 'Product';
+        const isInWishlist = window.wishlistItems && window.wishlistItems.has(prod.id);
+        const heartIcon = isInWishlist ? 'heart' : 'heart-outline';
+        const heartColor = isInWishlist ? 'color:red;' : '';
+
+        return `
+      <div class="rp-card" onclick="navigateToProduct('${prod.id}')" title="${prod.name}">
+        <div class="rp-card-img-wrap">
+          <img src="${prod.image_url}" alt="${prod.name}" class="rp-card-img">
+          <div class="rp-card-actions">
+            <button class="rp-action-btn" title="Wishlist"
+              onclick="event.stopPropagation(); toggleWishlist('${prod.id}', this)">
+              <ion-icon name="${heartIcon}" style="${heartColor}font-size:16px;"></ion-icon>
+            </button>
+            <button class="rp-action-btn" title="Quick view"
+              onclick="event.stopPropagation(); navigateToProduct('${prod.id}')">
+              <ion-icon name="eye-outline" style="font-size:16px;"></ion-icon>
+            </button>
+          </div>
+        </div>
+        <div class="rp-card-body">
+          <p class="rp-card-category">${categoryName}</p>
+          <h4 class="rp-card-title">${prod.name}</h4>
+          <p class="rp-card-price">${price}</p>
+        </div>
+      </div>
+    `;
+    }).join('');
+
+    const sectionHtml = `
+    <div id="related-products-section" style="
+      margin: 40px 20px 60px;
+      padding: 0;
+    ">
+      <div style="
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #f7ca00;
+        padding-bottom: 10px;
+      ">
+        <ion-icon name="grid-outline" style="font-size:22px; color:#f7ca00;"></ion-icon>
+        <h2 style="font-size:20px; font-weight:700; margin:0; color:inherit;">
+          ${sectionLabel}
+        </h2>
+        ${isFallback ? `<span style="
+          font-size:11px; font-weight:600; background:#f7ca00; color:#111;
+          padding:2px 8px; border-radius:20px; text-transform:uppercase;
+          letter-spacing:0.5px;
+        ">Trending</span>` : ''}
+      </div>
+
+      <div class="rp-grid">
+        ${cardsHtml}
+      </div>
+    </div>
+
+    <style>
+      .rp-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      @media (max-width: 900px) {
+        .rp-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 500px) {
+        .rp-grid {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+      }
+
+      .rp-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+        background: var(--bg, #fff);
+        transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        position: relative;
+      }
+      .rp-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+        border-color: #f7ca00;
+      }
+
+      .rp-card-img-wrap {
+        position: relative;
+        overflow: hidden;
+        aspect-ratio: 1 / 1;
+        background: #f5f5f5;
+      }
+      .rp-card-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        transition: transform 0.3s ease;
+      }
+      .rp-card:hover .rp-card-img {
+        transform: scale(1.06);
+      }
+
+      .rp-card-actions {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        opacity: 0;
+        transform: translateX(8px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      .rp-card:hover .rp-card-actions {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      .rp-action-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 1px solid #e0e0e0;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        padding: 0;
+      }
+      .rp-action-btn:hover {
+        background: #f7ca00;
+        border-color: #f7ca00;
+      }
+
+      .rp-card-body {
+        padding: 12px;
+      }
+      .rp-card-category {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #888;
+        margin: 0 0 4px;
+        font-weight: 600;
+      }
+      .rp-card-title {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0 0 8px;
+        color: inherit;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .rp-card-price {
+        font-size: 15px;
+        font-weight: 700;
+        color: #0f1111;
+        margin: 0;
+      }
+      /* dark theme compat */
+      body.dark-theme .rp-card-price,
+      body.theme-cyan-amber .rp-card-price {
+        color: inherit;
+      }
+      body.dark-theme .rp-card,
+      body.theme-cyan-amber .rp-card {
+        border-color: rgba(255,255,255,0.12);
+      }
+      body.dark-theme .rp-action-btn,
+      body.theme-cyan-amber .rp-action-btn {
+        background: #222;
+        border-color: rgba(255,255,255,0.15);
+      }
+    </style>
+  `;
+
+    // --- 4. Inject after the main product-detail container ---
+    const productDetail = document.getElementById('product-detail');
+    if (!productDetail) return;
+
+    // Remove any old section (e.g. on re-render)
+    const old = document.getElementById('related-products-section');
+    if (old) old.parentElement.removeChild(old.parentElement.querySelector('#related-products-section')?.closest('div') || old);
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = sectionHtml;
+    productDetail.insertAdjacentElement('afterend', wrapper);
+}
+
+// --- 5. Navigate to a related product (updates URL + full reload) ---
+window.navigateToProduct = function (productId) {
+    window.location.href = `product.html?id=${productId}`;
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     if (typeof window.supabaseClient === 'undefined') {
