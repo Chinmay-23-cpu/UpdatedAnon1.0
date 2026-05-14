@@ -1,52 +1,66 @@
+window._productLoaderOwned = true; // declare ownership
 // Get ID from URL
 function getId() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("id");
+    const params = new URLSearchParams(window.location.search);
+    return params.get("id");
 }
 
 async function loadProduct() {
 
-  const id = getId();
+    const id = getId();
 
-  if (!id) {
-    console.log("No ID");
-    return;
-  }
+    if (!id) {
+        console.log("No ID");
+        return;
+    }
 
-  const { data: prod, error } = await window.supabaseClient
-    .from('products')
-    .select('*, categories(name)')
-    .eq('id', id)
-    .single();
+    const { data: prod, error } = await window.supabaseClient
+        .from('products')
+        .select('*, categories(name)')
+        .eq('id', id)
+        .single();
 
-  if (error || !prod) {
-    console.log(error);
+    if (error || !prod) {
+        console.log(error);
+        const container = document.getElementById("product-detail");
+        if (container) container.innerHTML = '<h2>Product not found</h2>';
+        return;
+    }
+
+    // Store current product globally for currency updates
+    window.currentProduct = prod;
+
+    if (typeof fetchUserWishlist === 'function') {
+        await fetchUserWishlist();
+    }
+
+    // We will inject a container for the price history, and let renderPriceChart fill it.
+    const priceHistoryHtml = `
+      <div id="price-tracking-container">
+          <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-top: 20px; margin-bottom: 20px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: #333;">
+                  <ion-icon name="trending-up-outline" style="font-size: 20px;"></ion-icon>
+                  <h3 style="font-size: 16px; margin: 0; font-weight: bold;">Price Tracking</h3>
+              </div>
+              <canvas id="priceChart" width="400" height="200"></canvas>
+          </div>
+      </div>
+  `;
+
     const container = document.getElementById("product-detail");
-    if(container) container.innerHTML = '<h2>Product not found</h2>';
-    return;
-  }
 
-  // Store current product globally for currency updates
-  window.currentProduct = prod;
+    if (!container) return;
 
-  if (typeof fetchUserWishlist === 'function') {
-      await fetchUserWishlist();
-  }
+    // Create breadcrumbs
+    const categoryName = prod.categories?.name || 'Uncategorized';
+    const gender = prod.gender || 'unisex';
+    const genderDisplay = gender.charAt(0).toUpperCase() + gender.slice(1);
 
-  const container = document.getElementById("product-detail");
+    // Create gender badge if product is unisex
+    const genderBadge = gender === 'unisex' ?
+        `<span style="display: inline-block; background: #ff6b6b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 10px; text-transform: uppercase;">UNISEX</span>` : '';
 
-  if (!container) return;
-
-  // Create breadcrumbs
-  const categoryName = prod.categories?.name || 'Uncategorized';
-  const gender = prod.gender || 'unisex';
-  const genderDisplay = gender.charAt(0).toUpperCase() + gender.slice(1);
-  
-  // Create gender badge if product is unisex
-  const genderBadge = gender === 'unisex' ? 
-    `<span style="display: inline-block; background: #ff6b6b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 10px; text-transform: uppercase;">UNISEX</span>` : '';
-  
-  const breadcrumbsHtml = `
+    const breadcrumbsHtml = `
     <nav style="margin-bottom: 20px; padding: 10px 0; font-size: 14px; color: #666;">
       <a href="index.html" style="color: #007185; text-decoration: none;">Home</a>
       <span style="margin: 0 8px;">></span>
@@ -58,18 +72,18 @@ async function loadProduct() {
     </nav>
   `;
 
-  const qtyOptions = `
+    const qtyOptions = `
       <option value="1">Quantity: 1</option>
       <option value="2">Quantity: 2</option>
       <option value="3">Quantity: 3</option>
   `;
 
-  const isInWishlist = window.wishlistItems && window.wishlistItems.has(prod.id);
-  const heartIcon = isInWishlist ? 'heart' : 'heart-outline';
-  const heartColor = isInWishlist ? 'color: red;' : '';
+    const isInWishlist = window.wishlistItems && window.wishlistItems.has(prod.id);
+    const heartIcon = isInWishlist ? 'heart' : 'heart-outline';
+    const heartColor = isInWishlist ? 'color: red;' : '';
 
-  // ⚠️ IMPORTANT: MATCH YOUR EXISTING UI STRUCTURE
-  container.innerHTML = `
+    // ⚠️ IMPORTANT: MATCH YOUR EXISTING UI STRUCTURE
+    container.innerHTML = `
       ${breadcrumbsHtml}
       <div style="display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; padding: 20px;">
           <div style="flex: 1; min-width: 300px; max-width: 400px; position: sticky; top: 20px;">
@@ -90,6 +104,8 @@ async function loadProduct() {
               <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
                   Premium quality. Crafted for maximum comfort and style. Ideal for daily usage or special occasions.
               </p>
+              
+              ${priceHistoryHtml}
               
               <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;">
               
@@ -124,7 +140,7 @@ async function loadProduct() {
                   ${typeof formatPrice !== 'undefined' ? formatPrice(prod.price) : '$' + prod.price}
               </div>
               <p style="font-size: 14px; margin-bottom: 15px;">
-                  FREE delivery <strong>${new Date(new Date().setDate(new Date().getDate() + 4)).toLocaleDateString('en-US', {weekday: 'long', month: 'long', day:'numeric'})}</strong>. <a href="#" style="color: #007185; text-decoration: none;">Details</a>
+                  FREE delivery <strong>${new Date(new Date().setDate(new Date().getDate() + 4)).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</strong>. <a href="#" style="color: #007185; text-decoration: none;">Details</a>
               </p>
               
               <div style="font-size: 14px; margin-bottom: 15px; cursor: pointer;" onclick="const loc = prompt('Enter zip code or type \\'current\\' to use Current Location:', 'Current Location'); if(loc) document.getElementById('del-loc-text').innerText = loc;">
@@ -157,6 +173,133 @@ async function loadProduct() {
           </div>
       </div>
   `;
+
+    renderPriceChart(prod.id);
+}
+
+async function renderPriceChart(productId) {
+    // BUG FIX 1: fetch ascending directly — no .reverse() needed
+    const { data, error } = await window.supabaseClient
+        .from('price_history')
+        .select('*')
+        .eq('product_id', productId)
+        .order('changed_at', { ascending: true }); // was: ascending: false
+
+    if (error) console.error('Price history error:', error);
+
+    const container = document.getElementById('price-tracking-container');
+
+    if (!data || data.length === 0) {
+        if (container) {
+            container.innerHTML = `
+        <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-top: 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 10px;">
+          <ion-icon name="time-outline" style="font-size: 20px; color: #666; margin-top: 2px;"></ion-icon>
+          <div>
+            <h3 style="font-size: 16px; margin: 0 0 5px 0; color: #333; font-weight: bold;">Price Tracking</h3>
+            <div style="font-size: 14px; color: #666;">This product is currently at its best historical price.</div>
+          </div>
+        </div>
+      `;
+        }
+        return;
+    }
+
+    // BUG FIX 2: parse all prices to Number() to unify bigint vs numeric types
+    const labels = [];
+    const prices = [];
+
+    // Synthetic "before first change" point
+    const earliest = data[0];
+    const earliestDate = new Date(earliest.changed_at);
+    earliestDate.setDate(earliestDate.getDate() - 1);
+    labels.push(earliestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    prices.push(Number(earliest.old_price)); // explicit cast
+
+    data.forEach(record => {
+        labels.push(new Date(record.changed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        prices.push(Number(record.new_price)); // explicit cast
+    });
+
+    // "Today" point — use current product price
+    const currentPrice = Number(
+        window.currentProduct ? window.currentProduct.price : prices[prices.length - 1]
+    );
+    labels.push('Today');
+    prices.push(currentPrice);
+
+    // BUG FIX 3: use requestAnimationFrame instead of setTimeout(fn, 50)
+    // This guarantees the canvas has a real layout box before Chart.js measures it
+    requestAnimationFrame(() => {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js not loaded');
+            return;
+        }
+
+        // BUG FIX 4: guard both the canvas element AND its context
+        const canvas = document.getElementById('priceChart');
+        if (!canvas) {
+            console.error('priceChart canvas not found in DOM');
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            console.error('Could not get 2D context from canvas');
+            return;
+        }
+
+        // BUG FIX 5: destroy any existing Chart instance to avoid
+        // "Canvas is already in use" error on re-renders (e.g. currency switch)
+        if (canvas._chartInstance) {
+            canvas._chartInstance.destroy();
+        }
+
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Price',
+                    data: prices,
+                    borderColor: '#007185',
+                    backgroundColor: 'rgba(0, 113, 133, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.2,
+                    pointBackgroundColor: '#007185',
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                return typeof formatPrice !== 'undefined' ? formatPrice(val) : '$' + val;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            callback: function (value) {
+                                return typeof formatPrice !== 'undefined' ? formatPrice(value) : '$' + value;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store instance reference for future destroy calls
+        canvas._chartInstance = chart;
+    });
 }
 
 document.addEventListener("DOMContentLoaded", () => {

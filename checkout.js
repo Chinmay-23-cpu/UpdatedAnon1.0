@@ -66,13 +66,7 @@ async function initCheckout() {
 }
 
 function formatPriceCheckout(priceUsd) {
-    const currentCurrency = localStorage.getItem('currency') || 'usd';
-    if (currentCurrency === 'inr') {
-        const priceInr = priceUsd * 83;
-        const rounded = priceInr > 500 ? Math.ceil(priceInr / 100) * 100 - 1 : Math.round(priceInr);
-        return `₹${rounded.toLocaleString('en-IN')}`;
-    }
-    return `$${priceUsd.toFixed(2)}`;
+    return typeof formatPrice !== 'undefined' ? formatPrice(priceUsd) : `$${priceUsd.toFixed(2)}`;
 }
 
 // Update checkout prices when currency changes

@@ -63,7 +63,7 @@
 //         <div class="showcase-content">
 //           <h3 class="showcase-title">${p.name}</h3>
 //           <div class="price-box">
-//             <p class="price">₹${p.price}</p>
+//             <p class="price">${typeof formatPrice !== 'undefined' ? formatPrice(p.price) : '$' + p.price}</p>
 //           </div>
 //         </div>
 //       </div>
@@ -249,7 +249,7 @@ async function loadProducts(fallbackCategory) {
             <div class="showcase-content">
               <h3 class="showcase-title">${p.name}</h3>
               <div class="price-box">
-                <p class="price">₹${p.price}</p>
+                <p class="price">${typeof formatPrice !== 'undefined' ? formatPrice(p.price) : '$' + p.price}</p>
               </div>
             </div>
           </div>
